@@ -18,6 +18,7 @@ Files:
 References:
   - Piece-Square Tables - https://www.chessprogramming.org/Simplified_Evaluation_Function
   - PyQt5 usage (for GUI) - https://www.cs.dartmouth.edu/~devin/cs76/03_chess/chess.html
+  - python-chess documentation - https://buildmedia.readthedocs.org/media/pdf/python-chess/latest/python-chess.pdf
 
 Code from references have been commented/adjusted to fit project needs. 
 References are also in the code where they are used.
