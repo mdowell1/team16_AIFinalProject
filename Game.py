@@ -1,7 +1,9 @@
 import sys
+import time
+from datetime import timedelta
+
 import chess
 import chess.svg
-import BoardUtils
 from PyQt5 import QtSvg
 from PyQt5.QtCore import QTimer, QByteArray
 from PyQt5.QtWidgets import QApplication
@@ -23,6 +25,8 @@ class Game:
         player = self.players[1 - int(self.board.turn)]  # get the player who needs to make the next move
         move = player.move(self.board)  # get a movement from the player
         self.board.push(move)  # make the move
+        print(self.board)
+        print()
 
     # determines if game is over and returns outcome
     def isEnd(self):
@@ -43,26 +47,28 @@ class GUI:
         self.widget = QtSvg.QSvgWidget()  # create a widget
         self.widget.setGeometry(50, 50, 600, 600)  # set widget size
         self.widget.show()  # show the widget
+        self.startTime = None
+        self.endTime = None
 
     def startGame(self):  # begins the game
         self.timer = QTimer()  # create the timer
+        self.startTime = time.time()  # set game start time
         self.timer.timeout.connect(self.performMove)  # timeout waits on performMove
-        self.timer.start(30)  # give 30 seconds for AI to act
+        self.timer.start(60)  # give 30 seconds for AI to act
         self.showBoard()  # display the board
 
     def performMove(self):  # makes a move
         if self.game.isEnd() is None:  # if the game isn't over
             self.game.performMove()  # make the Game make a move
 
-            # get evaluation value - this will not be called for every board as it is right now, will be changed
-            evaluation = BoardUtils.EvalFunc(self.game.board)
-            if evaluation is not None: # display the value if there is one
-                print(evaluation)
-
         else:  # if the game is over, display winner and how they won
-            end = self.game.isEnd()
+            end = self.game.isEnd()   # get values from isEnd
+            self.endTime = time.time()  # get end time
             print(end[0])
             print(end[1])
+            strTime = str(timedelta(seconds=(self.endTime - self.startTime)))  # get time passed
+            print("Total time: {0}".format(strTime))
+            exit()
 
         self.showBoard()
 
@@ -74,13 +80,16 @@ class GUI:
         self.widget.load(uiBytes)  # load the widget to display the updated board
 
 
-# create the players
-player1 = HumanPlayer()
-player2 = AIPlayer()
+try:
+    # create the players
+    player1 = HumanPlayer()
+    player2 = AIPlayer("intermediate")
 
-gameBoard = chess.Board()  # create a new board for the game
-chessGame = Game(gameBoard, [player1, player2])  # create a new game object - give board and players
-gui = GUI(chessGame)  # create a new gui object - give the game object
+    gameBoard = chess.Board()  # create a new board for the game
+    chessGame = Game(gameBoard, [player1, player2])  # create a new game object - give board and players
+    gui = GUI(chessGame)  # create a new gui object - give the game object
 
-gui.startGame()  # start the game
-sys.exit(gui.app.exec_())  # do not end the game until the GUI closes
+    gui.startGame()  # start the game
+    sys.exit(gui.app.exec_())  # do not end the game until the GUI closes
+finally:
+    print()
