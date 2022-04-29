@@ -1,7 +1,6 @@
 import chess
 import random
 from time import sleep
-
 import BoardUtils
 
 
@@ -16,13 +15,11 @@ class HumanPlayer:  # class for human
             try:
                 finalMove = chess.Move.from_uci(move)  # get the uci move
                 if finalMove not in legal_moves:  # if it isn't in the set of legal moves
-                    move = input("Enter move: ")
-                    print("That is not a valid move; please enter a valid move: ")  # display to user
+                    move = input("That is not a valid move; please enter a valid move: ")  # display to user
                 else:  # if we don't have an exception and the move is in legal moves, break out of loop
                     break
             except:  # if we have an exception, display to user
-                print("That is not a valid move; please enter a valid move: ")
-                move = input("Enter move: ")
+                move = input("That is not a valid move; please enter a valid move: ")
 
         return chess.Move.from_uci(move)  # return the move
 
@@ -51,13 +48,13 @@ class AIPlayer:  # class for AI player
 
     def minimaxMove(self, board):
         # if easy AI, use depth 2
-        if self.difficulty == "easy":
+        if self.difficulty == "beginner":
             move = BoardUtils.GetMove(board, 2)
-        # if intermediate AI, use depth 3
+        # if intermediate AI, use depth 4
         elif self.difficulty == "intermediate":
-            move = BoardUtils.GetMove(board, 3)
-        # if hard AI, use depth 4
-        else:
             move = BoardUtils.GetMove(board, 4)
-        #   BoardUtils.AddSeenBoards()  # may add back in, updates file with seen boards after each move
+        # if hard AI, use depth 6
+        else:
+            move = BoardUtils.GetMove(board, 6)
+
         return move  # return the move to make
