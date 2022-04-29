@@ -7,6 +7,8 @@ import chess.svg
 from PyQt5 import QtSvg
 from PyQt5.QtCore import QTimer, QByteArray
 from PyQt5.QtWidgets import QApplication
+
+import BoardUtils
 from Players import AIPlayer, HumanPlayer
 
 
@@ -33,7 +35,7 @@ class Game:
         outcome = self.board.outcome()  # get if there is an outcome
         if outcome is None:  # if not, game isn't over
             return None
-
+        print("Hits: {0}, Misses: {1}".format(BoardUtils.hit, BoardUtils.miss))
         return outcome.winner, outcome.termination  # if so, game is over, return the winner and how they won
 
 
@@ -82,8 +84,9 @@ class GUI:
 
 try:
     # create the players
+    # p1 - white, p2 - black
     player1 = HumanPlayer()
-    player2 = AIPlayer("intermediate")
+    player2 = AIPlayer("hard")
 
     gameBoard = chess.Board()  # create a new board for the game
     chessGame = Game(gameBoard, [player1, player2])  # create a new game object - give board and players

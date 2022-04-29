@@ -1,15 +1,13 @@
 import math
-import os.path
 import random
-import traceback
+import time
 import chess
 import chess.polyglot
 import chess.pgn
-import pickle
-import BoardUtils
 import PieceSquare
+import ZobristHash
 
-# values of pieces
+# region variables
 p = 1  # pawn
 nb = 3  # knight and bishop
 r = 5  # rook
@@ -17,49 +15,40 @@ q = 9  # queen
 k = 10000  # king
 seen = 0
 movesData = {}
-pgnOffsets = []
 seenBoards = {}
+Hash = ZobristHash.Hash()
+hit = 0
+miss = 0
+inEnd = False
 
+
+# endregion
 
 # region evaluationFunction
 
 #  calls other functions to get material, control, and mobility values
 #  weighs these values, adds them, and returns them
-def EvalFunc(board: chess.Board):
-    # ----- uncomment if used again ---------
-    # if len(seenBoards) == 0:
-    #   GetSeenBoards()
+def EvalFunc(board: chess.Board, parentHash):
+    curHash = Hash.getHash(board, parentHash)  # get hash value of current board
+    cachedVal = Hash.hasHash(curHash)  # see if board is in the hash table
+    global hit, miss
+    if cachedVal is not None:  # if board is in hash table
+        hit = hit + 1  # update hits
+        return cachedVal[1]  # return the cached value
+    else:
+        legalMoves = GetLegalMoves(board)  # get mobility
+        materialVals = GetPieceVals(board)  # get material
+        locationVals = GetLocationVals(board)  # get control
+        miss = miss + 1  # update misses
 
-    # if seenBoards.get(str(board)) is not None:
-    #     val = seenBoards[str(board)]
-    #     legalMoves = val[0]
-    #     materialVals = val[1]
-    #     locationVals = val[2]
-
-    # else:
-    legalMoves = GetLegalMoves(board)  # get mobility
-    materialVals = GetPieceVals(board)  # get material
-    locationVals = GetLocationVals(board)  # get control
-    seenBoards[str(board)] = [legalMoves, materialVals, locationVals]
-
-    playerNum = board.turn
-    mobility = legalMoves[1 - playerNum] - legalMoves[
-        playerNum]  # other player - this player -> neg if cur is in lead, pos if not, getting net mobility value
-    material = materialVals[1 - playerNum] - materialVals[
-        playerNum]  # getting the net material value
-    control = locationVals[1 - playerNum] - locationVals[
-        playerNum]  # getting the net control value
-
-    # --------- uncomment if used again -----------
-    # get how common the move is at this point in time
-    # always positive, adds to the current player's weight
-    #    frequencies = MoveFrequencyWeight(board)
-    #   approx = frequencies[0]
-    #  exact = frequencies[1]
-    # freqVal = (approx * .3) + (exact * .7)
-
+    # always white - black
+    mobility = legalMoves[1] - legalMoves[
+        0]  # other player - this player -> neg if cur is in lead, pos if not, getting net mobility value
+    material = materialVals[1] - materialVals[0]  # getting the net material value
+    control = locationVals[1] - locationVals[0]  # getting the net control value
     # get weighted values and return the combined value - material is more important than other items
-    weighted = (0.05 * mobility) + (0.1 * control) + (0.85 * material)  # + (0.08 * freqVal)
+    weighted = (0.05 * mobility) + (0.1 * control) + (2 * material)  # + (0.08 * freqVal)
+    Hash.updateTable(curHash, [0, weighted])
     return weighted
 
 
@@ -70,7 +59,7 @@ def GetLegalMoves(board: chess.Board) -> [int, int]:
     legalMovesOtherPlayer = len(list(board.legal_moves))  # number of moves other player can take
     board.turn = 1 - board.turn  # switch back to this player so they can act
 
-    # return values in order of black, white
+    # always return values in order of black, white
     if board.turn == 0:
         return legalMovesCurPlayer, legalMovesOtherPlayer
     return legalMovesOtherPlayer, legalMovesCurPlayer
@@ -106,9 +95,15 @@ def GetLocationVals(board: chess.Board):
         # to the matching player's piece value
         if piece.symbol() == 'K':  # K is the king for the white side
             # KM is for middle-game value, this will be adjusted later to use either this or end-game value
-            whiteVal += PieceSquare.pieceSquareTableWhite.get('KM')[i]
+            if inEndGame(board):
+                whiteVal += PieceSquare.pieceSquareTableWhite.get('KE')[i]
+            else:
+                whiteVal += PieceSquare.pieceSquareTableWhite.get('KM')[i]
         elif piece.symbol() == 'k':  # k is the king for the black side
-            blackVal += PieceSquare.pieceSquareTableBlack.get('KM')[i]
+            if inEndGame(board):
+                blackVal += PieceSquare.pieceSquareTableBlack.get('KE')[i]
+            else:
+                blackVal += PieceSquare.pieceSquareTableBlack.get('KM')[i]
         elif piece.symbol() == 'Q':
             whiteVal += PieceSquare.pieceSquareTableWhite.get('Q')[i]
         elif piece.symbol() == 'q':
@@ -133,108 +128,100 @@ def GetLocationVals(board: chess.Board):
     return [blackVal, whiteVal]  # return values
 
 
+# returns if players are in the end game
+def inEndGame(board):
+    global inEnd
+    if not inEnd:  # if the current value is false, check if it's still the case
+        strBoard = str(board).lower()
+        if strBoard.count('p') == 0:  # if no more pawns, in end game
+            inEnd = True
+        elif strBoard.count('q') < 2:  # if at least 1 queen is gone, in end game
+            inEnd = True
+        elif strBoard.count('q') > 0 and strBoard.count('p') < 4:  # if there is a queen and few pawns left, in end game
+            inEnd = True
+
+    return inEnd  # return if board is in end game
+
+
 # endregion
 
 # region MiniMax
-
-
-# not currently in use
-# returns a move using MiniMax without AB Pruning
-def MiniMaxOld(board, depth):  # actions is [board,  val]
-
-    # recursive function to go further into tree
-    def recurse(playerNum, curDepth=0):
-        localBestVal = EvalFunc(board)  # get the current board value
-
-        if curDepth == depth:  # if we have met the depth
-            return localBestVal  # return the board evaluation
-
-        for m in board.legal_moves:  # loop through each legal move
-            BoardUtils.seen += 1  # debugging - increase seen boards num
-            board.push(m)  # make the move
-            newVal = recurse(1 - playerNum, curDepth + 1)  # get the value on child tree after making the move
-            board.pop()  # undo the move
-            if playerNum == 0:  # if player is Black
-                localBestVal = max(localBestVal, newVal)  # get the max of the values
-            else:  # if player is white
-                localBestVal = min(localBestVal, newVal)  # get the min of the values
-        return localBestVal  # return the best value
-
-    moves = board.legal_moves  # get legal moves
-    if board.turn == 0:  # if player is Black
-        bestVal = -math.inf  # maximizing, set best val
-    else:  # if player is white
-        bestVal = math.inf  # minimizing, set best val
-
-    bestMove = None  # don't currently know the best move
-    try:
-        for move in moves:  # loop through each legal move
-            BoardUtils.seen += 1  # debugging - increase seen boards
-            board.push(move)  # make the move
-            if board.turn == 0:  # if player is Black - maximizing
-                # call the recurse function and get the max of current and returned value
-                val = max(bestVal, recurse(1 - board.turn))
-                if val > bestVal:  # if the value is better than the current best val
-                    bestMove = move  # this is the best move so far
-                    bestVal = val  # this is the best value so farr
-            else:  # if player is White - minimizing
-                # call the recurse function and get the min of current and returned value
-                val = min(bestVal, recurse(1 - board.turn))
-                if val < bestVal:  # if the value is better than the current best val
-                    bestMove = move  # this is the best move so far
-                    bestVal = val  # this is the best value so far
-            board.pop()  # undo the move
-    except Exception as e:
-        print(e)
-        print(traceback.format_exc())
-
-    print("Seen: {0}".format(BoardUtils.seen))
-    return bestMove  # return the best move to make
-
-
-# returns a move using MiniMax with AB Pruning
-# used with the starting board configuration
 def MiniMaxRoot(board, depth):
-    # initialize alpha and beta
-    alpha = -math.inf
+    global seen
+    isMax = board.turn  # white maximizing, black minimizing
+    alpha = -math.inf  # initialize alpha and beta
     beta = math.inf
     possible = []  # create empty list of possible moves
+    hashVal = Hash.getHash(board)  # get the hash value for this board
+    moves = GetOrderedMoves(board)  # get sorted moves
 
     # loop through each legal move
-    for m in board.legal_moves:
+    for m in moves:
         board.push(m)  # make the move
-        BoardUtils.seen += 1  # debugging - increase num of seen boards
+        seen += 1  # debugging - increase num of seen boards
 
         # call the MiniMax function and get the value from traversing the tree after making the move
-        val = MiniMax(depth, False, board, alpha, beta)
+        val = MiniMax(depth, 1 - isMax, board, alpha, beta, hashVal)
         board.pop()  # undo the move
-        if val > alpha:  # since user is maximizing - if value is better than current alpha
-            alpha = val  # update the alpha
-            possible.clear()  # clear the list of possible moves
-            possible.append(m)  # add this to the list of possible moves
-        if val == alpha:  # if the value is the same as the current alpha
-            possible.append(m)  # add this to the list of possible moves
+        if isMax:
+            if val > alpha:  # since user is maximizing - if value is better than current alpha
+                alpha = val  # update the alpha
+                possible.clear()  # clear the list of possible moves
+                possible.append(m)  # add this to the list of possible moves
+            elif val == alpha:  # if the value is the same as the current alpha
+                possible.append(m)  # add this to the list of possible moves
+        else:
+            if val < beta:  # since user is maximizing - if value is better than current alpha
+                beta = val  # update the alpha
+                possible.clear()  # clear the list of possible moves
+                possible.append(m)  # add this to the list of possible moves
+            elif val == beta:  # if the value is the same as the current alpha
+                possible.append(m)  # add this to the list of possible moves
 
-    print("Seen: {0}".format(BoardUtils.seen))
+    print("Seen: {0}".format(seen))
+    if len(possible) == 1:  # if only 1 move option, return it
+        return possible[0]
+
+    possibleVals = []
+    for m in possible:  # loop through all possible moves (have the same evaluation)
+        possibleVals.append([m, GetEstimate(board, m)])  # add the move with its estimate to list
+    possibleVals.sort(key=lambda x: x[1], reverse=True)  # sort the new list by the estimate for each move
+    possible.clear()  # clear the old list of possible moves
+
+    # get the estimate from the first move in the list - this is the highest estimate value
+    lastVal = possibleVals[0][1]
+    for i in possibleVals:  # loop through each possible move from the new list
+        # if this move's estimate is less than the current highest, all remaining moves have a lower value than the highest
+        # break out of loop
+        if i[1] < lastVal:
+            break
+        possible.append(i[0])  # if it has the same value as the current highest, add it to the list of possible moves
+
     return random.choice(possible)  # return a random move from the list of possible moves, all have the same value
 
 
 # returns a value using MiniMax with AB Pruning
-def MiniMax(depth, isMax, board, alpha, beta):
-    BoardUtils.seen += 1  # debugging - increase number of seen boards
+def MiniMax(depth, isMax, board, alpha, beta, prevHash):
+    global seen, hit
+    seen += 1  # debugging - increase number of seen boards
 
     if depth == 0:  # if search depth is reached
-        return EvalFunc(board)  # return the value of the current board
+        return EvalFunc(board, prevHash)  # return the value of the current board
 
-    moves = list(board.legal_moves)  # get list of legal moves
-    # random.shuffle(moves)  # may slightly decrease search time
+    prevHash = Hash.getHash(board, prevHash)  # get hash value of this board
+    cachedVal = Hash.hasHash(prevHash)  # see if board is cached
+    if cachedVal is not None:  # if it is cached
+        if cachedVal[0] >= depth:  # see if cached depth is acceptable
+            hit = hit + 1  # if it is, update hits and return the cached value
+            return cachedVal[1]
 
     if isMax:  # if currently maximizing
+        moves = GetOrderedMoves(board)  # get list of legal moves
         best = -math.inf  # initialize value to beat
         for m in moves:  # loop through legal moves
             board.push(m)  # make the move
             # recursively call minimax and get the value for child tree
-            val = MiniMax(depth - 1, False, board, alpha, beta)  # not maximizing for child
+            val = MiniMax(depth - 1, False, board, alpha, beta, prevHash)  # not maximizing for child
             board.pop()  # undo the move
             best = max(best, val)  # update best if returned value is larger than current best value
             alpha = max(alpha, best)  # update alpha if best value is larger than current alpha
@@ -242,14 +229,13 @@ def MiniMax(depth, isMax, board, alpha, beta):
             if beta <= alpha:  # if alpha value has surpassed or met beta value
                 break  # do not continue - prune tree
 
-        return best  # return best value
-
     else:  # if currently minimizing
+        moves = GetOrderedMoves(board)  # get list of legal moves
         best = math.inf  # initialize value to beat
         for m in moves:  # loop through legal moves
             board.push(m)  # make the move
             # recursively call minimax and get the value for child tree
-            val = MiniMax(depth - 1, True, board, alpha, beta)  # maximizing for child
+            val = MiniMax(depth - 1, True, board, alpha, beta, prevHash)  # maximizing for child
             board.pop()  # undo the move
             best = min(best, val)  # update best if returned value is less than current best value
             beta = min(beta, best)  # update beta if best value is less than current beta
@@ -257,12 +243,13 @@ def MiniMax(depth, isMax, board, alpha, beta):
             if beta <= alpha:  # if beta has met or passed alpha value
                 break  # do not continue - prune tree
 
-        return best  # return best value
+    Hash.updateTable(prevHash, [depth, best])  # update hash table with new board evaluation
+    return best  # return best value
 
 
 # endregion
 
-# region using files
+# region book moves and sorting
 
 # gets and returns an opening book move if one is available
 def GetPolyglotMove(board: chess.Board):
@@ -275,140 +262,36 @@ def GetPolyglotMove(board: chess.Board):
             return None
 
 
-# not currently in use
-# gets previously-seen boards from txt file
-def GetSeenBoards():
-    # get if the file exists
-    filePath = "data/boards.txt"
-    exists = os.path.exists(filePath)
+# sort by estimate
+def GetOrderedMoves(board: chess.Board):
+    def order(move):  # returns estimate for move
+        return GetEstimate(board, move)
 
-    # if it does exist, open it and read the items
-    if exists:
-        with open(filePath, 'rb') as file:
-            try:
-                items = pickle.load(file)
-            except:  # if there's an error, make items list empty
-                items = {}
-    # if it doesn't exist, create it and make items list empty
-    else:
-        f = open(filePath, 'a')
-        items = {}
-
-    BoardUtils.seenBoards = items  # update the seen boards list with the items from the file
+    # sorts the legal moves by order given above, reverses so higher values are first
+    moves = sorted(board.legal_moves, key=order, reverse=True)
+    return moves  # return the sorted moves
 
 
-# not currently in use
-# updates the list of seen boards in the boards file
-def AddSeenBoards():
-    # if the seen boards list is empty, return
-    if len(BoardUtils.seenBoards) == 0:
-        return
+# https://stackoverflow.com/questions/61778579/what-is-the-best-way-to-find-out-if-the-move-captured-a-piece-in-python-chess
+# get evaluation estimate
+def GetEstimate(board: chess.Board, move: chess.Move) -> int:
+    global inEnd
+    boardEval = 0
 
-    filePath = "data/boards.txt"  # record file
-    data = {}  # start with empty dict
-    exists = os.path.exists(filePath)  # get if the file exists
+    if board.is_en_passant(move):  # add 1 if move is en passant capture - these are not included in is_capture
+        boardEval += 1
+    elif board.is_capture(move):  # add value of captured piece if move is a capture
+        boardEval = board.piece_at(move.to_square).piece_type
+    if board.is_castling(move):  # add 1 if move is castling - affects final decision, but not the actual board evaluation
+        boardEval += 1
+    if board.gives_check(move):  # add 1 if move gives a check - affects final decision, but not the actual board evaluation
+        boardEval += 1
+    # add 1 if piece moved is a pawn and players are in the end game - encourages pushing passed pawns
+    # affects final decision, but not the actual board evaluation
+    if board.piece_at(move.from_square).piece_type == 1 and inEnd:
+        boardEval += 1
+    return boardEval  # return final evaluation estimate
 
-    # if it doesn't, create the file
-    if not exists:
-        f = open(filePath, 'a')
-    # if it does, open the file and get the dictionary from it
-    else:
-        with open(filePath, 'rb') as file:
-            data = pickle.load(file)
-
-    data.update(BoardUtils.seenBoards)  # add the seen boards dict to the dict from the file
-
-    # update the file with the new dictionary
-    # needed previous steps since dump overwrites the file data, cannot append
-    with open(filePath, 'wb') as file:
-        pickle.dump(data, file)
-
-
-# not currently in use
-# records moves from a set of games and when they occurred in the game
-def GetMovesData():
-    # pgn contains real games
-    pgn = open("data/lichess_db_standard_rated_2015-05.pgn")
-    if len(BoardUtils.pgnOffsets) == 0:  # if we don't currently have a list of offsets, get them from the pgn
-        GetOffsets("data/lichess_db_standard_rated_2015-05.txt", pgn)
-
-    numGames = 10000  # number of games to get data from
-    moveCount = {}  # dictionary of move counts
-    gameLocs = random.sample(range(len(BoardUtils.pgnOffsets)),
-                             numGames)  # get 10000 random offsets from the offset list
-
-    # loop through each offset
-    for i in gameLocs:
-        moves = 0  # reset move count
-        pgn.seek(BoardUtils.pgnOffsets[i])  # moves iterator to game at this offset in the pgn file
-        game = chess.pgn.read_game(pgn)  # reads game at current point in pgn file
-        # loop through all of the moves in the game
-        for m in game.mainline_moves():
-            moves += 1  # increase move count
-            if m not in moveCount:  # if the move is not in the list, add it
-                moveCount[m] = [moves]  # also add the move number in the game that this occurred on
-            else:  # if the move is in the list already
-                moveCount[m].append(moves)  # update its list of move numbers with the current move number
-
-    #  mc = Counter(moveCount)
-    #  print(mc[chess.Move.from_uci('d2d4')])
-    return moveCount  # return the final dictionary
-
-
-# not currently in use
-# for evaluation function - returns the frequency of when a move occurred in
-# the example games (moves data dictionary)
-def MoveFrequencyWeight(board: chess.Board):
-    curMoves = board.fullmove_number  # get how many moves have happened in this game
-    if len(BoardUtils.movesData) == 0:  # if movesData dict isn't populated
-        BoardUtils.movesData = GetMovesData()  # populate it
-
-    move = board.peek()  # get the last move performed
-    atMoves = BoardUtils.movesData[move]  # get the list of when this moved happened in the example games
-
-    if atMoves is None:  # if the move wasn't in the list, return
-        return 0, 0
-
-    if curMoves < 13:  # if we are currently in the early game
-        countApprox = len([m for m in atMoves if m < 13])  # get how many times move occurred in early game in examples
-    else:  # if we are not currently in the early game
-        countApprox = len([m for m in atMoves if m > 12])  # get how many times move occurred after early game in examples
-
-    # get how many times move occurred at exact current move count in examples
-    countExact = len([m for m in atMoves if m == curMoves])
-    return countApprox, countExact  # return the approximate move count and the exact move count
-
-
-# not currently in use
-# pickle info: https://stackoverflow.com/questions/899103/writing-a-list-to-a-file-with-python
-# gets and returns the offsets for each game in a given pgn file
-# allows games to be accessed based off of their offset instead of in order
-def GetOffsets(filePath, pgn):
-    exists = os.path.exists(filePath)  # see if the file exists
-
-    # if it does, open it and load the offsets from it
-    if exists:
-        with open(filePath, 'rb') as file:
-            items = pickle.load(file)
-
-    # if it doesn't
-    else:
-        f = open(filePath, 'a')  # create the file
-        items = []  # create empty list for offsets
-
-        # loop until break
-        while True:
-            offset = pgn.tell()  # get the offset from the current game in pgn
-            headers = chess.pgn.read_headers(pgn)  # get the headers from the current game in pgn
-            if headers is None:  # if there is no header, there is no game, break out of loop
-                break
-            items.append(offset)  # add the offset to the list
-
-        # open the file and add the offsets to it
-        with open(filePath, 'wb') as file:
-            pickle.dump(items, file)
-
-    BoardUtils.pgnOffsets = items  # update the offsets list
 
 # endregion
 
@@ -419,5 +302,6 @@ def GetMove(board, depth):
 
     if move is None:  # if there wasn't a book move to use
         move = MiniMaxRoot(board, depth)  # get the move using minimax with AB Pruning
-
+    else:
+        time.sleep(1)  # make it look like the AI is thinking rather than immediately making a move
     return move  # return the move
