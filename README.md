@@ -6,7 +6,7 @@ To play: Run Game.py.  The UI is available to view the board, but will be frozen
 
 Current implementation:
   - User can play as black by switching player1 and player2 in Game.py
-  - AI difficulty can be changed by changing "intermediate" to "easy" or "hard" in line 89 of Game.py
+  - AI difficulty can be changed by changing "intermediate" to "beginner" or "expert" in line 89 of Game.py
   - AI uses MiniMax, Alpha-Beta Pruning, Sorting, and an Evaluation Function to make a decision
   - User can move by typing in the 'from' square and the 'to' square, such as "d2d3"
   - Pawns can be promoted by doing the above and appending the piece to promote to, such as "d7d8r" to promote a pawn to a rook
