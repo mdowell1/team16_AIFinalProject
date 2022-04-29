@@ -282,9 +282,11 @@ def GetEstimate(board: chess.Board, move: chess.Move) -> int:
         boardEval += 1
     elif board.is_capture(move):  # add value of captured piece if move is a capture
         boardEval = board.piece_at(move.to_square).piece_type
-    if board.is_castling(move):  # add 1 if move is castling - affects final decision, but not the actual board evaluation
+    if board.is_castling(
+            move):  # add 1 if move is castling - affects final decision, but not the actual board evaluation
         boardEval += 1
-    if board.gives_check(move):  # add 1 if move gives a check - affects final decision, but not the actual board evaluation
+    if board.gives_check(
+            move):  # add 1 if move gives a check - affects final decision, but not the actual board evaluation
         boardEval += 1
     # add 1 if piece moved is a pawn and players are in the end game - encourages pushing passed pawns
     # affects final decision, but not the actual board evaluation
@@ -303,5 +305,5 @@ def GetMove(board, depth):
     if move is None:  # if there wasn't a book move to use
         move = MiniMaxRoot(board, depth)  # get the move using minimax with AB Pruning
     else:
-        time.sleep(1)  # make it look like the AI is thinking rather than immediately making a move
+        time.sleep(1)  # make it look like the AI is thinking rather than immediately making a move - was not included in testing
     return move  # return the move

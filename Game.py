@@ -85,8 +85,9 @@ class GUI:
 try:
     # create the players
     # p1 - white, p2 - black
+    # AI options - beginner, intermediate, expert
     player1 = HumanPlayer()
-    player2 = AIPlayer("hard")
+    player2 = AIPlayer("intermediate")
 
     gameBoard = chess.Board()  # create a new board for the game
     chessGame = Game(gameBoard, [player1, player2])  # create a new game object - give board and players
