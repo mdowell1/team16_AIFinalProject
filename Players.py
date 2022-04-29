@@ -5,6 +5,12 @@ import BoardUtils
 
 
 class HumanPlayer:  # class for human
+    def __init__(self):
+        # explain how to play
+        print("To move, enter the from and to square. If pawn is being promoted, indicate piece to promote to. Example: \n"
+              "'d2d4' moves white pawn from d2 to d4.\n"
+              "if white pawn is in row 7 in column d, and the player wants to promote it to a queen, 'd7d8q' will make that move.\n"
+              "Pieces to promote to: b = bishop, n = knight, r = rook, q = queen")
 
     @staticmethod
     def move(board):  # make a move and return it to the caller
